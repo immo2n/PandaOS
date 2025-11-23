@@ -6,7 +6,7 @@ Just another linux kernel based hobby OS of mine!
 
 <div align="center">
 
-### 🐼 Hero Screenshot
+### 🐼 Welcome to PandaOS!
 
 ![PandaOS First Screen](screens/first-screen.png)
 
