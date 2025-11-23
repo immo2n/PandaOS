@@ -1,0 +1,181 @@
+#!/bin/sh
+# PandaOS Init Script
+# This runs from initramfs (in RAM)
+
+# Clear screen and display ASCII art
+clear 2>/dev/null || true
+if [ -f /etc/panda.art.txt ]; then
+    cat /etc/panda.art.txt
+    echo ""
+fi
+
+echo "========================================="
+echo "  Welcome to PandaOS!"
+echo "========================================="
+echo ""
+
+# Mount essential filesystems
+echo "Mounting filesystems..."
+mount -t proc proc /proc 2>/dev/null || true
+mount -t sysfs sysfs /sys 2>/dev/null || true
+mount -t devtmpfs devtmpfs /dev 2>/dev/null || true
+
+# Mount tmpfs for writable directories (allows file creation and execution)
+mount -t tmpfs tmpfs /tmp 2>/dev/null || true
+# Mount tmpfs on /root - this makes it writable and executable
+mount -t tmpfs tmpfs /root -o mode=0755 2>/dev/null || true
+
+# Try to remount root filesystem as exec (allows executing files from initramfs)
+# Note: This may not work for initramfs, but we try anyway
+mount -o remount,exec / 2>/dev/null || true
+
+# Alternative: bind mount /root over / to make it writable (if remount doesn't work)
+# This is a workaround for initramfs read-only issues
+if ! mountpoint -q /root 2>/dev/null; then
+    mount -t tmpfs tmpfs /root -o mode=0755 2>/dev/null || true
+fi
+
+# Create essential device nodes if they don't exist
+[ ! -e /dev/console ] && mknod /dev/console c 5 1 2>/dev/null || true
+[ ! -e /dev/null ] && mknod /dev/null c 1 3 2>/dev/null || true
+[ ! -e /dev/zero ] && mknod /dev/zero c 1 5 2>/dev/null || true
+[ ! -e /dev/tty ] && mknod /dev/tty c 5 0 2>/dev/null || true
+[ ! -e /dev/tty0 ] && mknod /dev/tty0 c 4 0 2>/dev/null || true
+[ ! -e /dev/tty1 ] && mknod /dev/tty1 c 4 1 2>/dev/null || true
+# Create additional TTY devices to avoid "can't open /dev/ttyX" errors
+[ ! -e /dev/tty2 ] && mknod /dev/tty2 c 4 2 2>/dev/null || true
+[ ! -e /dev/tty3 ] && mknod /dev/tty3 c 4 3 2>/dev/null || true
+[ ! -e /dev/tty4 ] && mknod /dev/tty4 c 4 4 2>/dev/null || true
+[ ! -e /dev/tty5 ] && mknod /dev/tty5 c 4 5 2>/dev/null || true
+[ ! -e /dev/tty6 ] && mknod /dev/tty6 c 4 6 2>/dev/null || true
+
+# Set up console properly to avoid "can't access tty" error
+# Redirect stdin, stdout, stderr to console
+exec 0</dev/console
+exec 1>/dev/console
+exec 2>/dev/console
+
+# Set up basic environment
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+export HOME=/root
+export SHELL=/bin/sh
+export PS1='PandaOS> '
+# Set TERM for ncurses-based programs like nano
+export TERM=linux
+
+# Print system information (uname should work if busybox is set up correctly)
+if command -v uname >/dev/null 2>&1; then
+    echo "Kernel: $(uname -r 2>/dev/null || echo 'unknown')"
+    echo "Architecture: $(uname -m 2>/dev/null || echo 'unknown')"
+else
+    echo "Kernel: $(cat /proc/sys/kernel/osrelease 2>/dev/null || echo 'unknown')"
+    echo "Architecture: $(cat /proc/sys/kernel/arch 2>/dev/null || echo 'unknown')"
+fi
+echo ""
+
+# Change to /root directory (writable with tmpfs)
+cd /root 2>/dev/null || cd /
+# Ensure /root is writable and has proper permissions
+chmod 755 /root 2>/dev/null || true
+
+# Display helpful message about working directories
+echo "Note: Create and edit files in /root or /tmp (writable directories)"
+echo "      Files in / (root) are read-only from initramfs"
+echo "      To run files from /, use: runfile /filename.sh"
+echo ""
+
+# Helper function to fix and execute scripts
+runfile() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: runfile <script>"
+        echo "  Fixes script shebang and executes it"
+        return 1
+    fi
+    
+    SCRIPT="$1"
+    if [ ! -f "$SCRIPT" ]; then
+        echo "Error: File not found: $SCRIPT"
+        return 1
+    fi
+    
+    # If file is in read-only location, copy to /root first
+    if [ ! -w "$(dirname "$SCRIPT")" ] 2>/dev/null; then
+        BASENAME=$(basename "$SCRIPT")
+        cp "$SCRIPT" "/root/$BASENAME" 2>/dev/null || {
+            echo "Error: Could not copy file to /root"
+            return 1
+        }
+        SCRIPT="/root/$BASENAME"
+    fi
+    
+    # Fix shebang if it points to bash or doesn't exist
+    if head -1 "$SCRIPT" | grep -q "^#!"; then
+        # Check if shebang points to non-existent interpreter
+        SHEBANG=$(head -1 "$SCRIPT" | sed 's/^#!//' | awk '{print $1}')
+        if [ ! -x "$SHEBANG" ] 2>/dev/null; then
+            # Fix shebang to point to /bin/sh
+            sed -i '1s|^#!.*|#!/bin/sh|' "$SCRIPT" 2>/dev/null || {
+                # If sed fails, create a new file with fixed shebang
+                echo "#!/bin/sh" > "/tmp/fixed_script.sh"
+                tail -n +2 "$SCRIPT" >> "/tmp/fixed_script.sh"
+                mv "/tmp/fixed_script.sh" "$SCRIPT"
+            }
+        fi
+    else
+        # Add shebang if missing
+        echo "#!/bin/sh" > "/tmp/fixed_script.sh"
+        cat "$SCRIPT" >> "/tmp/fixed_script.sh"
+        mv "/tmp/fixed_script.sh" "$SCRIPT"
+    fi
+    
+    chmod +x "$SCRIPT" 2>/dev/null
+    sh "$SCRIPT"
+}
+
+# Create a simple help function
+help() {
+    echo "Available commands:"
+    echo "  ls, cat, echo, clear, pwd, cd, ps, kill"
+    echo "  mount, umount, mkdir, rmdir, rm, cp, mv"
+    echo "  grep, find, df, du, free, dmesg"
+    echo "  uname, whoami, id, env"
+    echo "  nano (text editor)"
+    echo "  fastfetch (system info)"
+    echo ""
+    echo "Working with files:"
+    echo "  Writable directories: /root and /tmp"
+    echo "  Create files: nano /root/test.sh"
+    echo "  Make executable: chmod +x /root/test.sh"
+    echo "  Execute: sh /root/test.sh (recommended)"
+    echo "  Or use: runfile /root/test.sh (auto-fixes shebang)"
+    echo "  Note: If ./test.sh fails, use 'sh test.sh' instead"
+    echo ""
+    echo "Executing files from / (read-only):"
+    echo "  Use: runfile /test.sh"
+    echo "  Or: cp /test.sh /root/ && sh /root/test.sh"
+    echo ""
+    echo "Note: Files in / (root filesystem) are read-only"
+    echo "      Always work in /root or /tmp for file operations"
+    echo ""
+    echo "Type 'help' for this message, or 'exit' to reboot."
+}
+
+# Start interactive shell with proper TTY control
+echo "Type 'help' for available commands, or 'exit' to reboot."
+echo ""
+
+# Disable job control to suppress the warning (job control doesn't work in initramfs anyway)
+# The +m flag disables job control, eliminating the "can't access tty" warning
+set +m 2>/dev/null || true
+
+# Start shell - use simple approach to avoid TTY errors
+# Since we've disabled job control (+m), we don't need cttyhack
+# Just use setsid to create a new session, or plain sh
+if command -v setsid >/dev/null 2>&1; then
+    # Use setsid without cttyhack to avoid TTY device errors
+    exec setsid sh +m </dev/console >/dev/console 2>&1
+else
+    # Fallback: regular shell with job control disabled
+    exec sh +m </dev/console >/dev/console 2>&1
+fi
+
