@@ -1,12 +1,23 @@
-#!/bin/sh
+#!/bin/bash
 # PandaOS Init Script
 # This runs from initramfs (in RAM)
 
+# Set PATH early - critical for finding commands
+export PATH=/bin:/sbin:/usr/bin:/usr/sbin:/usr/local/bin
+
 # Clear screen and display ASCII art
-clear 2>/dev/null || true
+if command -v clear >/dev/null 2>&1; then
+    clear 2>/dev/null || true
+fi
+
 if [ -f /etc/panda.art.txt ]; then
-    cat /etc/panda.art.txt
-    echo ""
+    if command -v cat >/dev/null 2>&1; then
+        cat /etc/panda.art.txt
+        echo ""
+    elif command -v /bin/cat >/dev/null 2>&1; then
+        /bin/cat /etc/panda.art.txt
+        echo ""
+    fi
 fi
 
 echo "========================================="
@@ -55,13 +66,15 @@ exec 0</dev/console
 exec 1>/dev/console
 exec 2>/dev/console
 
-# Set up basic environment
-export PATH=/bin:/sbin:/usr/bin:/usr/sbin
+# Set up basic environment (PATH already set above)
 export HOME=/root
-export SHELL=/bin/sh
-export PS1='PandaOS> '
+export SHELL=/bin/bash
+export PS1='\[\033[1;32m\]PandaOS\[\033[0m\]> '
 # Set TERM for ncurses-based programs like nano
 export TERM=linux
+
+# Disable job control to avoid terminal errors in initramfs
+set +m 2>/dev/null || true
 
 # Print system information (uname should work if busybox is set up correctly)
 if command -v uname >/dev/null 2>&1; then
@@ -108,51 +121,52 @@ runfile() {
         SCRIPT="/root/$BASENAME"
     fi
     
-    # Fix shebang if it points to bash or doesn't exist
+    # Fix shebang if it points to non-existent interpreter
     if head -1 "$SCRIPT" | grep -q "^#!"; then
         # Check if shebang points to non-existent interpreter
         SHEBANG=$(head -1 "$SCRIPT" | sed 's/^#!//' | awk '{print $1}')
         if [ ! -x "$SHEBANG" ] 2>/dev/null; then
-            # Fix shebang to point to /bin/sh
-            sed -i '1s|^#!.*|#!/bin/sh|' "$SCRIPT" 2>/dev/null || {
+            # Fix shebang to point to /bin/bash
+            sed -i '1s|^#!.*|#!/bin/bash|' "$SCRIPT" 2>/dev/null || {
                 # If sed fails, create a new file with fixed shebang
-                echo "#!/bin/sh" > "/tmp/fixed_script.sh"
+                echo "#!/bin/bash" > "/tmp/fixed_script.sh"
                 tail -n +2 "$SCRIPT" >> "/tmp/fixed_script.sh"
                 mv "/tmp/fixed_script.sh" "$SCRIPT"
             }
         fi
     else
         # Add shebang if missing
-        echo "#!/bin/sh" > "/tmp/fixed_script.sh"
+        echo "#!/bin/bash" > "/tmp/fixed_script.sh"
         cat "$SCRIPT" >> "/tmp/fixed_script.sh"
         mv "/tmp/fixed_script.sh" "$SCRIPT"
     fi
     
     chmod +x "$SCRIPT" 2>/dev/null
-    sh "$SCRIPT"
+    bash "$SCRIPT"
 }
 
 # Create a simple help function
 help() {
     echo "Available commands:"
-    echo "  ls, cat, echo, clear, pwd, cd, ps, kill"
-    echo "  mount, umount, mkdir, rmdir, rm, cp, mv"
-    echo "  grep, find, df, du, free, dmesg"
-    echo "  uname, whoami, id, env"
-    echo "  nano (text editor)"
-    echo "  fastfetch (system info)"
+    echo "  GNU Coreutils: ls, cat, echo, clear, pwd, cd, ps, kill"
+    echo "  File operations: mount, umount, mkdir, rmdir, rm, cp, mv, ln"
+    echo "  Text processing: grep, find, sed, awk, sort, cut, paste, tr"
+    echo "  System info: df, du, free, dmesg, uname, whoami, id, env"
+    echo "  Development: gcc, g++, make, ld, as, ar, nm, strip"
+    echo "  Editors: nano (text editor)"
+    echo "  Utilities: fastfetch (system info)"
     echo ""
     echo "Working with files:"
     echo "  Writable directories: /root and /tmp"
     echo "  Create files: nano /root/test.sh"
     echo "  Make executable: chmod +x /root/test.sh"
-    echo "  Execute: sh /root/test.sh (recommended)"
+    echo "  Execute: bash /root/test.sh or ./test.sh"
     echo "  Or use: runfile /root/test.sh (auto-fixes shebang)"
-    echo "  Note: If ./test.sh fails, use 'sh test.sh' instead"
     echo ""
-    echo "Executing files from / (read-only):"
-    echo "  Use: runfile /test.sh"
-    echo "  Or: cp /test.sh /root/ && sh /root/test.sh"
+    echo "Development:"
+    echo "  Compile C: gcc /root/test.c -o /root/test"
+    echo "  Compile C++: g++ /root/test.cpp -o /root/test"
+    echo "  Use Makefiles: make -f /root/Makefile"
     echo ""
     echo "Note: Files in / (root filesystem) are read-only"
     echo "      Always work in /root or /tmp for file operations"
@@ -164,18 +178,19 @@ help() {
 echo "Type 'help' for available commands, or 'exit' to reboot."
 echo ""
 
-# Disable job control to suppress the warning (job control doesn't work in initramfs anyway)
-# The +m flag disables job control, eliminating the "can't access tty" warning
-set +m 2>/dev/null || true
-
-# Start shell - use simple approach to avoid TTY errors
-# Since we've disabled job control (+m), we don't need cttyhack
-# Just use setsid to create a new session, or plain sh
-if command -v setsid >/dev/null 2>&1; then
-    # Use setsid without cttyhack to avoid TTY device errors
-    exec setsid sh +m </dev/console >/dev/console 2>&1
-else
-    # Fallback: regular shell with job control disabled
+# Start bash shell - full-featured development environment
+# Job control is already disabled above with set +m
+if command -v bash >/dev/null 2>&1; then
+    # Use bash with job control disabled and proper I/O redirection
+    exec bash --norc --noprofile +m </dev/console >/dev/console 2>&1
+elif command -v /bin/bash >/dev/null 2>&1; then
+    exec /bin/bash --norc --noprofile +m </dev/console >/dev/console 2>&1
+elif command -v sh >/dev/null 2>&1; then
+    # Fallback to sh if bash is not available
     exec sh +m </dev/console >/dev/console 2>&1
+else
+    echo "Error: No shell found!"
+    sleep 5
+    reboot
 fi
 
