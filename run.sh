@@ -1,2 +1,2 @@
 echo "INFO: Replace filename with the actual filename of the ISO if fails"
-qemu-system-x86_64 -cdrom pandaos-20251126.iso -m 512M
+qemu-system-x86_64 -cdrom pandaos-20251127.iso -m 512M

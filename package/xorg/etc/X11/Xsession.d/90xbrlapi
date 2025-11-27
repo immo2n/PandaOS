@@ -1,0 +1,19 @@
+# startup script for /etc/X11/Xsession.d
+
+prefix="/usr"
+exec_prefix="/usr"
+drivers_directory="/usr/lib64/brltty"
+program_directory="/usr/bin"
+xbrlapi="$program_directory/xbrlapi"
+brltty="$program_directory/brltty"
+
+if [ -x "${xbrlapi}" ]; then
+  if "${xbrlapi}" 2>/dev/null ; then
+    # xbrlapi could connect to BrlAPI, try to start brltty with AtSpi2 driver.
+    if [ -x "${brltty}" -a \
+         -e "$drivers_directory/libbrlttybba.so" -a \
+         -e "$drivers_directory/libbrlttyxa2.so" ]; then
+      "${brltty}" -b ba -s no -x a2 -N 2>/dev/null
+    fi
+  fi
+fi

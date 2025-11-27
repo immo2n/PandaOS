@@ -15,7 +15,7 @@ setup_coreutils() {
         "touch" "test" "[" "printf" "true" "false" "yes" "seq" "sleep"
         "id" "whoami" "groups" "uname" "hostname" "date" "env" "printenv"
         "df" "du" "free" "ps" "kill" "killall" "nice" "nohup" "timeout"
-        "sync" "dmesg" "stty" "tty" "clear" "reset"
+        "sync" "dmesg" "stty" "tty" "clear" "reset" "expr"
     )
     
     SBIN_COMMANDS=(
